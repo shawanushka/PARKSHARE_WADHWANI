@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body style="margin:0">
+<title>ParkShare</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  // Tailwind (play CDN) reads our CSS variables, so light/dark theming lives in one place (the :root tokens below).
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        page: 'var(--page)', surface: 'var(--surface)', ink: 'var(--ink)', muted: 'var(--muted)', line: 'var(--line)',
+        sign: 'var(--sign)', signink: 'var(--signink)', signsoft: 'var(--signsoft)',
+        kerb: 'var(--kerb)', kerbink: 'var(--kerbink)', ok: 'var(--ok)', bad: 'var(--bad)', warn: 'var(--warn)'
+      },
+      fontFamily: {
+        display: ['"Bricolage Grotesque"', 'Figtree', 'system-ui', 'sans-serif'],
+        sans: ['Figtree', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'Menlo', 'monospace']
+      }
+    } }
+  };
+</script>
+<style>
+  /* Layout concept: sticky header with the role switch, a parking-sign blue hero band edged with a kerb stripe,
+     then Driver (results list + schematic map + booking panel) or Owner (stats, listing form, bookings). */
+  :root {
+    color-scheme: light;
+    --page: #F2F5FA; --surface: #FFFFFF; --ink: #0F1A35; --muted: #566283; --line: #D8DEEA;
+    --sign: #1B3FA6; --signink: #FFFFFF; --signsoft: #E5ECFC;
+    --kerb: #F7B500; --kerbink: #1A1400; --stripe: #16130A;
+    --hero: #1B3FA6; --heroink: #FFFFFF;
+    --ok: #0F7A55; --oksoft: #DDF3EA; --warn: #A24A06; --bad: #B42318; --badsoft: #FCE6E3;
+    --map-ground: #E9EEF6; --map-block: #DDE5F2; --map-road: #FFFFFF; --map-edge: #C4CEE1; --map-water: #CFE0F5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0B1122; --surface: #131B33; --ink: #E7ECF8; --muted: #9AA7C7; --line: #263252;
+      --sign: #7E9DFF; --signink: #0A1230; --signsoft: #1C2A57;
+      --kerb: #F7B500; --kerbink: #1A1400; --stripe: #16130A;
+      --hero: #162A78; --heroink: #FFFFFF;
+      --ok: #4CCB9D; --oksoft: #103A2E; --warn: #F0A25B; --bad: #FF8E80; --badsoft: #47201C;
+      --map-ground: #101A33; --map-block: #17223F; --map-road: #26345A; --map-edge: #0B1122; --map-water: #14284A;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0B1122; --surface: #131B33; --ink: #E7ECF8; --muted: #9AA7C7; --line: #263252;
+    --sign: #7E9DFF; --signink: #0A1230; --signsoft: #1C2A57;
+    --kerb: #F7B500; --kerbink: #1A1400; --stripe: #16130A;
+    --hero: #162A78; --heroink: #FFFFFF;
+    --ok: #4CCB9D; --oksoft: #103A2E; --warn: #F0A25B; --bad: #FF8E80; --badsoft: #47201C;
+    --map-ground: #101A33; --map-block: #17223F; --map-road: #26345A; --map-edge: #0B1122; --map-water: #14284A;
+  }
+
+  body { background: var(--page); color: var(--ink); font-family: Figtree, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  [hidden] { display: none !important; }
+  .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+  :focus-visible { outline: 2px solid var(--sign); outline-offset: 2px; }
+
+  .site-header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .hero { background: var(--hero); color: var(--heroink); }
+  .kerb-stripe { height: 8px; background: repeating-linear-gradient(-45deg, var(--kerb) 0 14px, var(--stripe) 14px 28px); }
+  .step-no { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: var(--kerb); color: var(--kerbink); font: 600 12px "IBM Plex Mono", monospace; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+  .label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .field { width: 100%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px; padding: 10px 12px; font-size: 16px; }
+  .field[aria-invalid="true"] { border-color: var(--bad); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 18px; border-radius: 10px; font-weight: 700; background: var(--sign); color: var(--signink); border: 1px solid var(--sign); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .link { color: var(--sign); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+  .chip { padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; font-weight: 500; color: var(--ink); background: var(--surface); }
+  .chip.on { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  .chip:disabled { opacity: .45; cursor: not-allowed; }
+  .seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 12px; background: var(--page); border: 1px solid var(--line); }
+  .seg-btn { padding: 8px 14px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--muted); }
+  .seg-btn.on { background: var(--sign); color: var(--signink); }
+  .pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; font: 600 11px/1.6 "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
+  .pill-kerb { background: var(--kerb); color: var(--kerbink); }
+  .pill-ok { background: var(--oksoft); color: var(--ok); }
+  .pill-sign { background: var(--signsoft); color: var(--sign); }
+  .pill-bad { background: var(--badsoft); color: var(--bad); }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--signsoft); color: var(--ink); }
+
+  .spot { display: flex; gap: 14px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; cursor: pointer; }
+  .spot:hover { border-color: var(--sign); }
+  .spot.sel { border-color: var(--sign); box-shadow: 0 0 0 2px var(--sign); }
+  .spot.full { opacity: .7; }
+
+  .switch { position: relative; width: 44px; height: 26px; flex: none; border-radius: 999px; background: var(--line); }
+  .switch span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); transition: transform .15s; }
+  .switch.on { background: var(--ok); }
+  .switch.on span { transform: translateX(18px); }
+
+  .maptext { font: 600 8.5px "IBM Plex Mono", monospace; letter-spacing: .12em; fill: var(--muted); }
+  .pin { cursor: pointer; }
+  .pin-box { fill: var(--sign); stroke: var(--surface); stroke-width: 2; }
+  .pin-tip { fill: var(--sign); }
+  .pin-text { font: 600 11px "IBM Plex Mono", monospace; fill: var(--signink); }
+  .pin-sel .pin-box { fill: var(--kerb); stroke: var(--ink); stroke-width: 2.5; }
+  .pin-sel .pin-tip { fill: var(--kerb); }
+  .pin-sel .pin-text { fill: var(--kerbink); }
+  .pin-full .pin-box, .pin-full .pin-tip { fill: var(--muted); }
+  .pin-full .pin-text { fill: var(--surface); }
+  .pin:focus-visible { outline: none; }
+  .pin:focus-visible .pin-box { stroke: var(--ink); }
+
+  .gate-pin { border: 2px dashed var(--line); border-radius: 12px; padding: 12px; text-align: center; background: var(--page); }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+</style>
+
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<script>
+/* =====================================================================
+   ParkShare prototype  ·  React 18 + htm (JSX-like, no build step) + Tailwind
+   Sections:  1 Data  ·  2 Helpers  ·  3 Shared UI  ·  4 Driver view
+              5 Owner view  ·  6 App (state shared by both roles)
+   Everything is in memory: listings made by the owner appear in the driver
+   search, and bookings made by the driver appear on the owner dashboard.
+   ===================================================================== */
+const { useState, useEffect, useRef } = React;
+const html = htm.bind(React.createElement);
+
+/* ---------- 1. DATA ---------- */
+const COMMISSION = 0.10;                       // ParkShare keeps 10% of each booking, taken from the owner
+const PLATE_RE = /^[A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{4}$/;   // e.g. MH 12 AB 1234
+const AREA_NAMES = ['FC Road', 'Deccan', 'JM Road', 'Law College Rd', 'Shivajinagar'];
+// Search-zone centres on the schematic map (400 x 300 viewBox)
+const AREAS = {
+  'FC Road':        { x: 150, y: 138, r: 58 },
+  'Deccan':         { x: 225, y: 215, r: 48 },
+  'JM Road':        { x: 320, y: 175, r: 42 },
+  'Law College Rd': { x: 58,  y: 108, r: 42 },
+  'Shivajinagar':   { x: 322, y: 72,  r: 42 }
+};
+const AMENITIES = ['CCTV', 'Covered', 'Gated', 'Guard', 'EV charging'];
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// Sample listings (fictional). rates: null means that vehicle type is not accepted.
+const SEED_SPOTS = [
+  { id: 1, owner: 'me', title: 'Gokhale Residency stilt parking', kind: 'Residential', area: 'FC Road', address: 'Lane 3, off FC Road',
+    rates: { car: 50, bike: 20 }, slots: 2, window: { from: '08:00', to: '21:00' }, days: 'Mon–Sat', walk: 1, rating: 4.8, trips: 31,
+    amenities: ['CCTV', 'Covered', 'Gated'], x: 178, y: 166, live: true },
+  { id: 3, owner: 'other', title: 'Bookshop rear lot', kind: 'Shop', area: 'FC Road', address: 'FC Road, behind the shopfront row',
+    rates: { car: 60, bike: 20 }, slots: 3, window: { from: '10:00', to: '22:00' }, walk: 1, rating: 4.7, trips: 44,
+    amenities: ['CCTV', 'Guard'], x: 112, y: 104, live: true },
+  { id: 6, owner: 'other', title: 'Tailor shopfront (two-wheelers only)', kind: 'Shop', area: 'FC Road', address: 'FC Road, near the lane 5 corner',
+    rates: { car: null, bike: 20 }, slots: 4, window: { from: '09:00', to: '20:00' }, walk: 1, rating: 4.5, trips: 22,
+    amenities: ['Guard'], x: 132, y: 150, live: true },
+  { id: 2, owner: 'other', title: 'Kulkarni Wada courtyard', kind: 'Residential', area: 'Deccan', address: 'Apte Road, near Deccan Gymkhana',
+    rates: { car: 40, bike: 15 }, slots: 1, window: { from: '07:00', to: '22:00' }, walk: 4, rating: 4.6, trips: 18,
+    amenities: ['Covered'], x: 205, y: 208, live: true },
+  { id: 8, owner: 'other', title: 'Apte Road apartments visitor bay', kind: 'Residential', area: 'Deccan', address: 'Apte Road, society gate 1',
+    rates: { car: 55, bike: 20 }, slots: 0, window: { from: '08:00', to: '20:00' }, walk: 3, rating: 4.7, trips: 27,
+    amenities: ['CCTV', 'Gated'], x: 250, y: 235, live: true },
+  { id: 4, owner: 'other', title: 'Patwardhan Society visitor bay', kind: 'Residential', area: 'JM Road', address: 'JM Road, society gate 2',
+    rates: { car: 45, bike: 15 }, slots: 1, window: { from: '06:00', to: '23:00' }, walk: 5, rating: 4.5, trips: 12,
+    amenities: ['Gated', 'Guard'], x: 320, y: 178, live: true },
+  { id: 5, owner: 'other', title: 'Clinic rear yard', kind: 'Shop', area: 'Law College Rd', address: 'Law College Road, behind the clinic row',
+    rates: { car: 35, bike: 10 }, slots: 2, window: { from: '09:00', to: '20:00' }, walk: 3, rating: 4.4, trips: 9,
+    amenities: ['Gated'], x: 58, y: 108, live: true },
+  { id: 7, owner: 'other', title: 'Court Road basement parking', kind: 'Residential', area: 'Shivajinagar', address: 'Court Road, society basement',
+    rates: { car: 40, bike: 15 }, slots: 2, window: { from: '06:00', to: '22:00' }, walk: 6, rating: 4.9, trips: 52,
+    amenities: ['CCTV', 'Covered', 'EV charging'], x: 322, y: 72, live: true }
+];
+
+/* ---------- 2. HELPERS ---------- */
+const cls = (...a) => a.filter(Boolean).join(' ');
+const inr = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+const fmt = (min) => { const h = Math.floor(min / 60) % 24, m = min % 60; return (((h + 11) % 12) + 1) + ':' + String(m).padStart(2, '0') + ' ' + (h >= 12 ? 'pm' : 'am'); };
+const dayLabel = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }); };
+const daysText = (d) => { const s = [...d].sort((a, b) => a - b); const k = s.join(); return s.length === 7 ? 'Every day' : k === '0,1,2,3,4,5' ? 'Mon–Sat' : k === '0,1,2,3,4' ? 'Mon–Fri' : s.map((i) => DAY_NAMES[i]).join(', '); };
+const act = (fn) => (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } };
+const vehicleName = (v) => (v === 'car' ? 'Car' : '2-wheeler');
+
+// Valid start times (every 30 min) that fit the owner's window; "today" skips times already gone (+10 min buffer).
+function startOptions(spot, hours, day) {
+  const from = toMin(spot.window.from), to = toMin(spot.window.to);
+  const d = new Date(); const nowMin = d.getHours() * 60 + d.getMinutes();
+  const earliest = day === 'today' ? Math.ceil((nowMin + 10) / 30) * 30 : 0;
+  const out = [];
+  for (let t = Math.max(from, earliest); t + hours * 60 <= to; t += 30) out.push(t);
+  return out;
+}
+
+const SEED_BOOKINGS = [
+  { id: 'PS-48213', spotId: 1, plate: 'MH 12 RT 4821', vehicle: 'car',  dateLabel: dayLabel(0),  start: 1110, hours: 2, amount: 100, status: 'Upcoming' },
+  { id: 'PS-47990', spotId: 1, plate: 'MH 14 KT 2087', vehicle: 'car',  dateLabel: dayLabel(-1), start: 540,  hours: 4, amount: 200, status: 'Completed' },
+  { id: 'PS-47731', spotId: 1, plate: 'MH 12 ZX 0932', vehicle: 'bike', dateLabel: dayLabel(-2), start: 600,  hours: 3, amount: 60,  status: 'Completed' },
+  { id: 'PS-47502', spotId: 1, plate: 'MH 12 DE 7714', vehicle: 'car',  dateLabel: dayLabel(-4), start: 1020, hours: 3, amount: 150, status: 'Completed' }
+];
+
+/* ---------- 3. SHARED UI ---------- */
+const Logo = () => html`
+  <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+    <rect x="1" y="1" width="32" height="32" rx="8" style=${{ fill: 'var(--sign)' }} />
+    <rect x="3.5" y="3.5" width="27" height="27" rx="5.5" style=${{ fill: 'none', stroke: 'var(--signink)', strokeWidth: 1.5 }} />
+    <text x="17" y="25" textAnchor="middle" style=${{ fill: 'var(--signink)', font: '800 21px "Bricolage Grotesque", sans-serif' }}>P</text>
+  </svg>`;
+
+function Header({ role, setRole }) {
+  return html`
+    <header className="site-header">
+      <div className="gutter mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <${Logo} />
+          <span className="font-display text-xl font-bold tracking-tight">ParkShare</span>
+        </div>
+        <div className="seg" role="group" aria-label="Choose your role">
+          <button type="button" className=${cls('seg-btn', role === 'driver' && 'on')} aria-pressed=${role === 'driver'} onClick=${() => setRole('driver')}>I'm driving</button>
+          <button type="button" className=${cls('seg-btn', role === 'owner' && 'on')} aria-pressed=${role === 'owner'} onClick=${() => setRole('owner')}>I own a space</button>
+        </div>
+      </div>
+    </header>`;
+}
+
+function Hero({ role }) {
+  const c = role === 'driver'
+    ? { tag: 'For drivers', title: 'A guaranteed spot near FC Road, booked before you leave home.', steps: ['Search where you are headed', 'Book and pay in one tap', 'Drive in with your gate PIN'] }
+    : { tag: 'For space owners', title: 'Your empty parking slot, earning while you are out.', steps: ['List your slot in two minutes', 'Drivers book it instantly', 'Get paid and keep 90%'] };
+  return html`
+    <section className="hero">
+      <div className="gutter mx-auto max-w-6xl py-8 sm:py-10">
+        <p className="font-mono text-xs font-semibold uppercase tracking-[0.14em] opacity-80">ParkShare · Pune · ${c.tag}</p>
+        <h1 className="mt-3 max-w-3xl font-display text-3xl font-bold leading-[1.08] sm:text-5xl" style=${{ textWrap: 'balance' }}>${c.title}</h1>
+        <p className="mt-4 max-w-2xl text-base opacity-90 sm:text-lg">Guaranteed, affordable parking via a digital booking app, saving drivers time & helping owners earn.</p>
+        <ol className="mt-6 grid gap-2.5 sm:grid-cols-3">
+          ${c.steps.map((s, i) => html`<li key=${s} className="flex items-center gap-3 text-sm font-medium"><span className="step-no">${i + 1}</span>${s}</li>`)}
+        </ol>
+      </div>
+      <div className="kerb-stripe" aria-hidden="true"></div>
+    </section>`;
+}
+
+const Field = ({ label, htmlFor, error, hint, children }) => html`
+  <div className="min-w-0">
+    <label htmlFor=${htmlFor} className="label">${label}</label>
+    ${children}
+    ${hint && html`<p className="mt-1 text-xs text-muted">${hint}</p>`}
+    ${error && html`<p className="mt-1 text-sm text-bad" role="alert">${error}</p>`}
+  </div>`;
+
+/* ---------- 4. DRIVER VIEW ---------- */
+// Schematic (not to scale) map of the FC Road / Deccan area. Pins show the hourly price for the chosen vehicle.
+const BLOCKS = [[14, 14, 86, 54], [112, 10, 70, 50], [196, 14, 40, 66], [262, 28, 40, 30], [340, 20, 46, 40], [14, 150, 66, 62], [96, 168, 50, 40], [270, 250, 80, 36], [24, 256, 70, 30]];
+const ROADS = [
+  { d: 'M60 50 L250 245', w: 12 },     // FC Road
+  { d: 'M10 235 L390 165', w: 10 },    // JM Road
+  { d: 'M10 122 L390 122', w: 9 }      // Law College Road
+];
+
+function MapMock({ spots, area, vehicle, selectedId, onSelect }) {
+  const zone = AREAS[area];
+  const ordered = [...spots].sort((a, b) => (a.id === selectedId) - (b.id === selectedId));   // selected pin drawn on top
+  return html`
+    <figure className="card overflow-hidden">
+      <svg viewBox="0 0 400 300" role="img" aria-label=${'Schematic map of parking spots near ' + (area === 'All' ? 'central Pune' : area)} className="block h-auto w-full">
+        <rect width="400" height="300" style=${{ fill: 'var(--map-ground)' }} />
+        ${BLOCKS.map((b, i) => html`<rect key=${i} x=${b[0]} y=${b[1]} width=${b[2]} height=${b[3]} rx="6" style=${{ fill: 'var(--map-block)' }} />`)}
+        <path d="M0 280 C100 268 220 296 400 262" style=${{ fill: 'none', stroke: 'var(--map-water)', strokeWidth: 16 }} />
+        ${ROADS.map((r, i) => html`<g key=${i}>
+          <path d=${r.d} style=${{ fill: 'none', stroke: 'var(--map-edge)', strokeWidth: r.w + 3, strokeLinecap: 'round' }} />
+          <path d=${r.d} style=${{ fill: 'none', stroke: 'var(--map-road)', strokeWidth: r.w, strokeLinecap: 'round' }} />
+        </g>`)}
+        <text className="maptext" x="92" y="73" transform="rotate(46 92 73)">FC ROAD</text>
+        <text className="maptext" x="24" y="222" transform="rotate(-10 24 222)">JM ROAD</text>
+        <text className="maptext" x="250" y="115">LAW COLLEGE RD</text>
+        <text className="maptext" x="300" y="292">MUTHA RIVER</text>
+        ${zone && html`<circle cx=${zone.x} cy=${zone.y} r=${zone.r} style=${{ fill: 'var(--kerb)', fillOpacity: 0.16, stroke: 'var(--kerb)', strokeWidth: 1.5, strokeDasharray: '4 4' }} />`}
+        ${ordered.map((s) => {
+          const full = s.slots <= 0;
+          const label = full ? 'Full' : '₹' + s.rates[vehicle];
+          return html`<g key=${s.id} className=${cls('pin', s.id === selectedId && 'pin-sel', full && 'pin-full')} transform=${'translate(' + s.x + ' ' + s.y + ')'}
+              tabIndex="0" role="button" aria-label=${s.title + ', ' + label + (full ? '' : ' per hour')}
+              onClick=${() => onSelect(s.id)} onKeyDown=${act(() => onSelect(s.id))}>
+            <path className="pin-tip" d="M-5 -7 L0 0 L5 -7 Z" />
+            <rect className="pin-box" x="-21" y="-28" width="42" height="22" rx="6" />
+            <text className="pin-text" x="0" y="-13" textAnchor="middle" dominantBaseline="middle">${label}</text>
+          </g>`;
+        })}
+      </svg>
+      <figcaption className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-xs text-muted">
+        <span>Schematic map, not to scale</span>
+        <span>Dashed yellow ring marks your search area</span>
+      </figcaption>
+    </figure>`;
+}
+
+function SpotCard({ spot, vehicle, selected, onSelect }) {
+  const full = spot.slots <= 0;
+  return html`
+    <article className=${cls('spot', selected && 'sel', full && 'full')} tabIndex="0" role="button" aria-pressed=${selected}
+        onClick=${onSelect} onKeyDown=${act(onSelect)}>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="font-display text-lg font-semibold leading-tight">${spot.title}</h3>
+          ${!spot.trips && html`<span className="pill pill-kerb">New</span>`}
+        </div>
+        <p className="mt-1 text-sm text-muted">${spot.kind} · ${spot.address}</p>
+        <p className="mt-2 text-sm">${spot.walk} min walk · ${spot.rating ? '★ ' + spot.rating + ' (' + spot.trips + ')' : 'No ratings yet'} · ${fmt(toMin(spot.window.from))} to ${fmt(toMin(spot.window.to))}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">${spot.amenities.map((a) => html`<span key=${a} className="tag">${a}</span>`)}</div>
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="font-mono text-2xl font-semibold tabular-nums">${inr(spot.rates[vehicle])}</p>
+        <p className="text-xs text-muted">per hour</p>
+        <p className=${cls('mt-2 text-sm font-semibold', full ? 'text-bad' : 'text-ok')}>${full ? 'Full' : spot.slots + ' left'}</p>
+      </div>
+    </article>`;
+}
+
+// Booking panel: pick time + duration, enter plate, pay (simulated), get instant confirmation with a gate PIN.
+function BookingPanel({ spot, vehicle, onBook, onReset, goOwner }) {
+  const rate = spot.rates[vehicle];
+  const winLen = toMin(spot.window.to) - toMin(spot.window.from);
+  const hourChoices = [1, 2, 3, 4, 6, 8].filter((h) => h * 60 <= winLen);
+  const [hours, setHours] = useState(Math.min(2, hourChoices[hourChoices.length - 1] || 1));
+  const [dayPref, setDayPref] = useState('today');
+  const [startSel, setStartSel] = useState(null);
+  const [plate, setPlate] = useState('MH 12 AB 1234');
+  const [pay, setPay] = useState('UPI');
+  const [stage, setStage] = useState('form');      // form -> paying -> done
+  const [booking, setBooking] = useState(null);
+  const [touched, setTouched] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const optsToday = startOptions(spot, hours, 'today');
+  const optsTomorrow = startOptions(spot, hours, 'tomorrow');
+  const day = dayPref === 'today' && optsToday.length ? 'today' : optsTomorrow.length ? 'tomorrow' : 'today';
+  const opts = day === 'today' ? optsToday : optsTomorrow;
+  const start = opts.includes(startSel) ? startSel : opts[0];
+  const plateNorm = plate.trim().toUpperCase().replace(/\s+/g, ' ');
+  const plateOk = PLATE_RE.test(plateNorm);
+  const total = rate * hours;
+  const full = spot.slots <= 0;
+
+  function book() {
+    setTouched(true);
+    if (!plateOk || start === undefined || full) return;
+    setStage('paying');
+    timer.current = setTimeout(() => {
+      const b = { id: 'PS-' + (10000 + Math.floor(Math.random() * 90000)), spotId: spot.id, plate: plateNorm, vehicle, dateLabel: dayLabel(day === 'today' ? 0 : 1),
+        start, hours, amount: total, pay, pin: String(1000 + Math.floor(Math.random() * 9000)), status: 'Upcoming' };
+      onBook(b); setBooking(b); setStage('done');
+    }, 1500);
+  }
+
+  if (stage === 'done' && booking) {
+    const maps = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(spot.title + ', ' + spot.address + ', Pune');
+    return html`
+      <section className="card p-4 sm:p-5" aria-live="polite">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-full" style=${{ background: 'var(--oksoft)', color: 'var(--ok)' }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" style=${{ fill: 'none', stroke: 'currentColor', strokeWidth: 2.6, strokeLinecap: 'round', strokeLinejoin: 'round' }} /></svg>
+          </span>
+          <div className="min-w-0">
+            <h2 className="font-display text-xl font-bold leading-tight">Spot confirmed</h2>
+            <p className="font-mono text-sm text-muted">Booking ${booking.id}</p>
+          </div>
+        </div>
+        <div className="gate-pin mt-4">
+          <p className="label !mb-1">Your gate PIN</p>
+          <p className="font-mono text-4xl font-semibold tracking-[0.3em]">${booking.pin}</p>
+        </div>
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <div className="col-span-2 min-w-0"><dt className="text-muted">Where</dt><dd className="font-semibold">${spot.title}, ${spot.address}</dd></div>
+          <div><dt className="text-muted">When</dt><dd className="font-semibold">${booking.dateLabel}, ${fmt(booking.start)} to ${fmt(booking.start + booking.hours * 60)}</dd></div>
+          <div><dt className="text-muted">Vehicle</dt><dd className="font-mono font-semibold">${booking.plate}</dd></div>
+          <div><dt className="text-muted">Paid via ${booking.pay}</dt><dd className="font-mono font-semibold">${inr(booking.amount)}</dd></div>
+        </dl>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <a className="btn" href=${maps} target="_blank" rel="noopener noreferrer">Get directions</a>
+          <button type="button" className="btn btn-ghost" onClick=${onReset}>Book another time</button>
+        </div>
+        ${spot.owner === 'me' && html`<p className="mt-4 text-sm text-muted">This is your own listing, so the booking is already on your <button type="button" className="link" onClick=${goOwner}>owner dashboard</button>.</p>`}
+      </section>`;
+  }
+
+  return html`
+    <section className="card p-4 sm:p-5" aria-labelledby="book-title">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="label !mb-1">Book this spot</p>
+          <h2 id="book-title" className="font-display text-xl font-bold leading-tight">${spot.title}</h2>
+          <p className="mt-1 text-sm text-muted">${spot.address} · ${vehicleName(vehicle)}</p>
+        </div>
+        <p className="shrink-0 font-mono text-xl font-semibold tabular-nums">${inr(rate)}<span className="text-xs font-medium text-muted">/hr</span></p>
+      </div>
+
+      <div className="mt-4 grid gap-4">
+        <div>
+          <span className="label">Day</span>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className=${cls('chip', day === 'today' && 'on')} disabled=${!optsToday.length} aria-pressed=${day === 'today'} onClick=${() => setDayPref('today')}>Today, ${dayLabel(0)}</button>
+            <button type="button" className=${cls('chip', day === 'tomorrow' && 'on')} disabled=${!optsTomorrow.length} aria-pressed=${day === 'tomorrow'} onClick=${() => setDayPref('tomorrow')}>Tomorrow</button>
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <${Field} label="Start time" htmlFor="start" error=${!opts.length ? 'No start times fit this duration. Try fewer hours.' : ''}>
+            <select id="start" className="field" value=${start === undefined ? '' : start} onChange=${(e) => setStartSel(Number(e.target.value))} disabled=${!opts.length}>
+              ${opts.map((t) => html`<option key=${t} value=${t}>${fmt(t)}</option>`)}
+            </select>
+          <//>
+          <div>
+            <span className="label">Duration</span>
+            <div className="flex flex-wrap gap-2">
+              ${hourChoices.map((h) => html`<button key=${h} type="button" className=${cls('chip', hours === h && 'on')} aria-pressed=${hours === h} onClick=${() => setHours(h)}>${h} hr</button>`)}
+            </div>
+          </div>
+        </div>
+        <${Field} label="Vehicle number" htmlFor="plate" hint="Format: MH 12 AB 1234" error=${touched && !plateOk ? 'Enter a valid number plate, for example MH 12 AB 1234.' : ''}>
+          <input id="plate" className="field font-mono uppercase" value=${plate} onChange=${(e) => setPlate(e.target.value)} autoComplete="off" aria-invalid=${touched && !plateOk} />
+        <//>
+        <div>
+          <span className="label">Pay with</span>
+          <div className="flex flex-wrap gap-2">
+            ${['UPI', 'Card', 'Wallet'].map((p) => html`<button key=${p} type="button" className=${cls('chip', pay === p && 'on')} aria-pressed=${pay === p} onClick=${() => setPay(p)}>${p}</button>`)}
+          </div>
+        </div>
+      </div>
+
+      <dl className="mt-5 space-y-1.5 border-t border-line pt-4 text-sm">
+        <div className="flex justify-between gap-3"><dt className="text-muted">Parking</dt><dd className="font-mono tabular-nums">${inr(rate)} × ${hours} hr</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted">Booking fee for drivers</dt><dd className="font-mono tabular-nums">₹0</dd></div>
+        ${start !== undefined && html`<div className="flex justify-between gap-3"><dt className="text-muted">Your slot</dt><dd className="font-mono tabular-nums">${fmt(start)} to ${fmt(start + hours * 60)}</dd></div>`}
+        <div className="flex items-baseline justify-between gap-3 pt-1"><dt className="font-semibold">Total</dt><dd className="font-display text-2xl font-bold tabular-nums">${inr(total)}</dd></div>
+      </dl>
+
+      <button type="button" className="btn mt-4 w-full" onClick=${book} disabled=${stage === 'paying' || full || !opts.length}>
+        ${stage === 'paying' ? html`<span className="spin" aria-hidden="true"></span>Confirming your spot…` : full ? 'Full right now' : 'Book now · ' + inr(total)}
+      </button>
+      <p className="mt-3 text-center text-xs text-muted">Confirmed instantly. Your slot is held from start time to end time.</p>
+    </section>`;
+}
+
+function DriverView({ spots, drv, patch, onBook, goOwner }) {
+  const panelRef = useRef(null);
+  const q = drv.query.trim().toLowerCase();
+  const results = spots
+    .filter((s) => s.live && (drv.area === 'All' || s.area === drv.area) && s.rates[drv.vehicle] != null
+      && (!q || (s.title + ' ' + s.address + ' ' + s.area).toLowerCase().includes(q)))
+    .sort((a, b) => (drv.sort === 'cheap' ? a.rates[drv.vehicle] - b.rates[drv.vehicle] : a.walk - b.walk));
+  const selected = results.find((s) => s.id === drv.selectedId) || results[0] || null;
+
+  // On phones the booking panel sits above the list, so bring it into view after a pick.
+  const choose = (id) => {
+    patch({ selectedId: id });
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      setTimeout(() => { if (panelRef.current) panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60);
+    }
+  };
+
+  return html`
+    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:items-start lg:gap-6">
+      <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-4">
+        <section className="card order-1 p-4 lg:order-none" aria-label="Search parking">
+          <label htmlFor="q" className="label">Where are you headed?</label>
+          <input id="q" type="search" className="field" placeholder="Search a lane, landmark or society" value=${drv.query} onChange=${(e) => patch({ query: e.target.value })} />
+          <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Area">
+            ${[...AREA_NAMES, 'All'].map((a) => html`<button key=${a} type="button" className=${cls('chip', drv.area === a && 'on')} aria-pressed=${drv.area === a} onClick=${() => patch({ area: a })}>${a === 'All' ? 'All Pune' : a}</button>`)}
+          </div>
+          <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+            <div className="seg" role="group" aria-label="Vehicle type">
+              <button type="button" className=${cls('seg-btn', drv.vehicle === 'car' && 'on')} aria-pressed=${drv.vehicle === 'car'} onClick=${() => patch({ vehicle: 'car' })}>Car</button>
+              <button type="button" className=${cls('seg-btn', drv.vehicle === 'bike' && 'on')} aria-pressed=${drv.vehicle === 'bike'} onClick=${() => patch({ vehicle: 'bike' })}>2-wheeler</button>
+            </div>
+            <div className="min-w-[10rem]">
+              <label htmlFor="sort" className="label">Sort by</label>
+              <select id="sort" className="field !py-2" value=${drv.sort} onChange=${(e) => patch({ sort: e.target.value })}>
+                <option value="near">Shortest walk</option>
+                <option value="cheap">Lowest price</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section className="order-4 flex flex-col gap-3 lg:order-none" aria-label="Available spots">
+          <h2 className="font-display text-xl font-bold">${results.length} ${results.length === 1 ? 'spot' : 'spots'} ${drv.area === 'All' ? 'across Pune' : 'near ' + drv.area}</h2>
+          ${results.length === 0 && html`<div className="card p-5 text-sm text-muted">No spots match this search. Try another area or vehicle type, or clear the search box.</div>`}
+          ${results.map((s) => html`<${SpotCard} key=${s.id} spot=${s} vehicle=${drv.vehicle} selected=${selected && s.id === selected.id} onSelect=${() => choose(s.id)} />`)}
+        </section>
+      </div>
+
+      <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-4 lg:sticky lg:top-[calc(env(safe-area-inset-top,0px)+84px)] lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto">
+        <div className="order-2 lg:order-none">
+          <${MapMock} spots=${results} area=${drv.area} vehicle=${drv.vehicle} selectedId=${selected ? selected.id : null} onSelect=${choose} />
+        </div>
+        <div ref=${panelRef} className="order-3 lg:order-none" style=${{ scrollMarginTop: '84px' }}>
+          ${selected
+            ? html`<${BookingPanel} key=${selected.id + '-' + drv.nonce + '-' + drv.vehicle} spot=${selected} vehicle=${drv.vehicle} onBook=${onBook} onReset=${() => patch({ nonce: drv.nonce + 1 })} goOwner=${goOwner} />`
+            : html`<div className="card p-5 text-sm text-muted">Pick a spot on the map or from the list to see times and book it.</div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ---------- 5. OWNER VIEW ---------- */
+const BLANK_FORM = { name: 'Joshi Apartments stilt slot', kind: 'Residential', area: 'FC Road', address: 'Lane 5, off FC Road', slots: 1,
+  car: true, bike: true, carRate: 40, bikeRate: 15, from: '09:00', to: '19:00', days: [0, 1, 2, 3, 4, 5], amenities: ['Gated'] };
+
+function Stats({ mineSpots, myBookings }) {
+  const net = (b) => b.amount * (1 - COMMISSION);
+  const paid = myBookings.filter((b) => b.status === 'Completed').reduce((s, b) => s + net(b), 0);
+  const upcoming = myBookings.filter((b) => b.status === 'Upcoming');
+  const upNet = upcoming.reduce((s, b) => s + net(b), 0);
+  const live = mineSpots.filter((s) => s.live).length;
+  const cell = (label, value, sub) => html`
+    <div className="min-w-0 border-line p-4 [&:not(:first-child)]:border-l">
+      <dt className="text-xs font-semibold uppercase tracking-wide text-muted">${label}</dt>
+      <dd className="mt-1 font-mono text-xl font-semibold tabular-nums sm:text-2xl">${value}</dd>
+      <dd className="text-xs text-muted">${sub}</dd>
+    </div>`;
+  return html`
+    <dl className="card grid grid-cols-3 overflow-hidden">
+      ${cell('Paid out', inr(paid), 'after 10% fee')}
+      ${cell('Upcoming', inr(upNet), upcoming.length + (upcoming.length === 1 ? ' booking' : ' bookings'))}
+      ${cell('Live listings', String(live), 'of ' + mineSpots.length)}
+    </dl>`;
+}
+
+function ListingForm({ spots, onList, onViewAsDriver }) {
+  const [f, setF] = useState(BLANK_FORM);
+  const [errors, setErrors] = useState({});
+  const [done, setDone] = useState(null);
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const toggle = (k, v) => setF((s) => ({ ...s, [k]: s[k].includes(v) ? s[k].filter((x) => x !== v) : [...s[k], v] }));
+
+  // Price guidance from listings already in the chosen area
+  const peers = spots.filter((s) => s.area === f.area && s.rates.car != null).map((s) => s.rates.car);
+  const hint = peers.length ? 'Cars near ' + f.area + ': ' + inr(Math.min(...peers)) + ' to ' + inr(Math.max(...peers)) + ' per hour' : 'No listings in ' + f.area + ' yet. ₹40 per hour is a fair start.';
+
+  // Rough monthly earnings: assumes half of the open hours get booked
+  const hrs = Math.max(0, (toMin(f.to) - toMin(f.from)) / 60);
+  const rate = f.car ? Number(f.carRate) || 0 : f.bike ? Number(f.bikeRate) || 0 : 0;
+  const monthly = rate * hrs * 0.5 * (f.days.length * 4.3) * f.slots * (1 - COMMISSION);
+
+  function submit(e) {
+    e.preventDefault();
+    const err = {};
+    if (f.name.trim().length < 3) err.name = 'Give your space a name drivers will recognise.';
+    if (f.address.trim().length < 3) err.address = 'Add a lane or landmark so drivers can find it.';
+    if (!f.car && !f.bike) err.vehicles = 'Choose at least one vehicle type.';
+    if (f.car && !(Number(f.carRate) > 0)) err.carRate = 'Enter a price above ₹0.';
+    if (f.bike && !(Number(f.bikeRate) > 0)) err.bikeRate = 'Enter a price above ₹0.';
+    if (toMin(f.to) - toMin(f.from) < 60) err.time = 'Keep the space open for at least one hour.';
+    if (!f.days.length) err.days = 'Pick at least one day.';
+    setErrors(err);
+    if (Object.keys(err).length) return;
+    setDone(onList(f));
+  }
+
+  const n = Object.keys(errors).length;
+  return html`
+    <form className="card p-4 sm:p-5" onSubmit=${submit} noValidate>
+      <h2 className="font-display text-xl font-bold">List a vacant slot</h2>
+      <p className="mt-1 text-sm text-muted">Residential stilt, society visitor bay or a shop frontage after hours. It goes live in the driver search straight away.</p>
+
+      ${done && html`
+        <div className="mt-4 rounded-xl p-4 text-sm" style=${{ background: 'var(--oksoft)', color: 'var(--ink)' }} role="status">
+          <p className="font-semibold">Listed. Drivers searching ${done.area} can book "${done.title}" now.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="btn" onClick=${() => onViewAsDriver(done)}>See it as a driver</button>
+            <button type="button" className="btn btn-ghost" onClick=${() => setDone(null)}>List another slot</button>
+          </div>
+        </div>`}
+      ${n > 0 && html`<p className="mt-4 rounded-xl p-3 text-sm font-semibold text-bad" style=${{ background: 'var(--badsoft)' }} role="alert">Fix ${n} ${n === 1 ? 'field' : 'fields'} below to list your space.</p>`}
+
+      <div className="mt-5 grid gap-4">
+        <${Field} label="Space name" htmlFor="name" error=${errors.name}>
+          <input id="name" className="field" value=${f.name} onChange=${(e) => set('name', e.target.value)} aria-invalid=${!!errors.name} />
+        <//>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <span className="label">Space type</span>
+            <div className="flex gap-2">
+              ${['Residential', 'Shop'].map((k) => html`<button key=${k} type="button" className=${cls('chip', f.kind === k && 'on')} aria-pressed=${f.kind === k} onClick=${() => set('kind', k)}>${k}</button>`)}
+            </div>
+          </div>
+          <${Field} label="Area" htmlFor="area">
+            <select id="area" className="field" value=${f.area} onChange=${(e) => set('area', e.target.value)}>
+              ${AREA_NAMES.map((a) => html`<option key=${a} value=${a}>${a}</option>`)}
+            </select>
+          <//>
+        </div>
+        <${Field} label="Address or landmark" htmlFor="address" error=${errors.address}>
+          <input id="address" className="field" value=${f.address} onChange=${(e) => set('address', e.target.value)} aria-invalid=${!!errors.address} />
+        <//>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <${Field} label="Available from" htmlFor="from"><input id="from" type="time" className="field" value=${f.from} onChange=${(e) => set('from', e.target.value)} /><//>
+          <${Field} label="Available until" htmlFor="to" error=${errors.time}><input id="to" type="time" className="field" value=${f.to} onChange=${(e) => set('to', e.target.value)} aria-invalid=${!!errors.time} /><//>
+        </div>
+        <div>
+          <span className="label">Days</span>
+          <div className="flex flex-wrap gap-2">
+            ${DAY_NAMES.map((d, i) => html`<button key=${d} type="button" className=${cls('chip', f.days.includes(i) && 'on')} aria-pressed=${f.days.includes(i)} onClick=${() => toggle('days', i)}>${d}</button>`)}
+          </div>
+          ${errors.days && html`<p className="mt-1 text-sm text-bad" role="alert">${errors.days}</p>`}
+        </div>
+
+        <div>
+          <span className="label">Vehicles you accept and hourly price</span>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center gap-3">
+              <button type="button" className=${cls('chip', f.car && 'on')} aria-pressed=${f.car} onClick=${() => set('car', !f.car)}>Car</button>
+              <div className="relative min-w-0 flex-1">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden="true">₹</span>
+                <input id="carRate" type="number" inputMode="numeric" min="1" className="field !pl-7 font-mono" aria-label="Car price per hour" value=${f.carRate} disabled=${!f.car} onChange=${(e) => set('carRate', e.target.value)} aria-invalid=${!!errors.carRate} />
+              </div>
+              <span className="text-sm text-muted">/hr</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button type="button" className=${cls('chip', f.bike && 'on')} aria-pressed=${f.bike} onClick=${() => set('bike', !f.bike)}>2-wheeler</button>
+              <div className="relative min-w-0 flex-1">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden="true">₹</span>
+                <input id="bikeRate" type="number" inputMode="numeric" min="1" className="field !pl-7 font-mono" aria-label="Two-wheeler price per hour" value=${f.bikeRate} disabled=${!f.bike} onChange=${(e) => set('bikeRate', e.target.value)} aria-invalid=${!!errors.bikeRate} />
+              </div>
+              <span className="text-sm text-muted">/hr</span>
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-muted">${hint}</p>
+          ${(errors.vehicles || errors.carRate || errors.bikeRate) && html`<p className="mt-1 text-sm text-bad" role="alert">${errors.vehicles || errors.carRate || errors.bikeRate}</p>`}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <span className="label">Slots available</span>
+            <div className="flex items-center gap-3">
+              <button type="button" className="chip" aria-label="Fewer slots" onClick=${() => set('slots', Math.max(1, f.slots - 1))}>−</button>
+              <span className="w-6 text-center font-mono text-lg font-semibold" aria-live="polite">${f.slots}</span>
+              <button type="button" className="chip" aria-label="More slots" onClick=${() => set('slots', Math.min(4, f.slots + 1))}>+</button>
+            </div>
+          </div>
+          <div>
+            <span className="label">Features</span>
+            <div className="flex flex-wrap gap-2">
+              ${AMENITIES.map((a) => html`<button key=${a} type="button" className=${cls('chip', f.amenities.includes(a) && 'on')} aria-pressed=${f.amenities.includes(a)} onClick=${() => toggle('amenities', a)}>${a}</button>`)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-xl p-4" style=${{ background: 'var(--signsoft)' }}>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Estimated passive income</p>
+        <p className="mt-1 font-display text-3xl font-bold tabular-nums">≈ ${inr(Math.round(monthly / 10) * 10)}<span className="text-base font-medium text-muted"> per month</span></p>
+        <p className="mt-1 text-xs text-muted">${inr(rate)}/hr × ${Number.isInteger(hrs) ? hrs : hrs.toFixed(1)} open hrs × 50% booked × ${Math.round(f.days.length * 4.3)} days × ${f.slots} ${f.slots === 1 ? 'slot' : 'slots'}, after ParkShare's 10% fee. An estimate, not a promise.</p>
+      </div>
+
+      <button type="submit" className="btn mt-5 w-full sm:w-auto">List my space</button>
+    </form>`;
+}
+
+function MyListings({ mine, onToggle }) {
+  return html`
+    <section className="card p-4 sm:p-5" aria-label="Your listings">
+      <h2 className="font-display text-xl font-bold">Your listings</h2>
+      <ul className="mt-3 divide-y divide-line">
+        ${mine.map((s) => html`
+          <li key=${s.id} className="flex items-center justify-between gap-3 py-3">
+            <div className="min-w-0">
+              <p className="font-semibold leading-tight">${s.title}</p>
+              <p className="mt-0.5 text-sm text-muted">${s.area} · ${fmt(toMin(s.window.from))} to ${fmt(toMin(s.window.to))} · ${s.days || 'Daily'}</p>
+              <p className="mt-0.5 text-sm"><span className="font-mono">${[s.rates.car != null && 'Car ' + inr(s.rates.car), s.rates.bike != null && '2W ' + inr(s.rates.bike)].filter(Boolean).join(' · ')}</span> · ${s.slots} ${s.slots === 1 ? 'slot' : 'slots'} free</p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <button type="button" role="switch" aria-checked=${s.live} aria-label=${(s.live ? 'Pause ' : 'Resume ') + s.title} className=${cls('switch', s.live && 'on')} onClick=${() => onToggle(s.id)}><span></span></button>
+              <span className="text-xs text-muted">${s.live ? 'Live' : 'Paused'}</span>
+            </div>
+          </li>`)}
+      </ul>
+    </section>`;
+}
+
+function BookingList({ bookings, spots }) {
+  return html`
+    <section className="card p-4 sm:p-5" aria-label="Bookings">
+      <h2 className="font-display text-xl font-bold">Bookings on your slots</h2>
+      ${bookings.length === 0 && html`<p className="mt-3 text-sm text-muted">No bookings yet. When a driver books one of your slots it shows up here instantly.</p>`}
+      <ul className="mt-3 divide-y divide-line">
+        ${bookings.map((b) => {
+          const sp = spots.find((s) => s.id === b.spotId);
+          return html`
+            <li key=${b.id} className="flex items-start justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="font-mono text-base font-semibold">${b.plate}</p>
+                <p className="text-sm text-muted">${vehicleName(b.vehicle)} · ${sp ? sp.title : 'Your slot'}</p>
+                <p className="text-sm">${b.dateLabel}, ${fmt(b.start)} to ${fmt(b.start + b.hours * 60)}</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="font-mono font-semibold tabular-nums">+${inr(b.amount * (1 - COMMISSION))}</p>
+                <p className="text-xs text-muted">after 10% fee</p>
+                <p className="mt-1 flex justify-end gap-1.5">
+                  ${b.fresh && html`<span className="pill pill-kerb">New</span>`}
+                  <span className=${cls('pill', b.status === 'Completed' ? 'pill-ok' : 'pill-sign')}>${b.status}</span>
+                </p>
+              </div>
+            </li>`;
+        })}
+      </ul>
+    </section>`;
+}
+
+function OwnerView({ spots, bookings, onList, onToggle, onViewAsDriver }) {
+  const mine = spots.filter((s) => s.owner === 'me');
+  const ids = mine.map((s) => s.id);
+  const myBookings = bookings.filter((b) => ids.includes(b.spotId));
+  return html`
+    <div className="flex flex-col gap-4 lg:gap-6">
+      <${Stats} mineSpots=${mine} myBookings=${myBookings} />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <${ListingForm} spots=${spots} onList=${onList} onViewAsDriver=${onViewAsDriver} />
+        <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
+          <${MyListings} mine=${mine} onToggle=${onToggle} />
+          <${BookingList} bookings=${myBookings} spots=${spots} />
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ---------- 6. APP: shared state for both roles ---------- */
+const roleFromHash = () => (location.hash === '#owner' ? 'owner' : 'driver');
+
+function App() {
+  const [role, setRole] = useState(roleFromHash());
+  const [spots, setSpots] = useState(SEED_SPOTS);
+  const [bookings, setBookings] = useState(SEED_BOOKINGS);
+  const [drv, setDrv] = useState({ area: 'FC Road', query: '', vehicle: 'car', sort: 'near', selectedId: null, nonce: 0 });
+  const [toast, setToast] = useState('');
+  const patch = (p) => setDrv((s) => ({ ...s, ...p }));
+
+  useEffect(() => { try { if (location.hash.slice(1) !== role) history.replaceState(null, '', '#' + role); } catch (e) {} window.scrollTo({ top: 0 }); }, [role]);
+  useEffect(() => {
+    const h = () => { if (location.hash === '#owner') setRole('owner'); else if (location.hash === '#driver') setRole('driver'); };
+    window.addEventListener('hashchange', h);
+    return () => window.removeEventListener('hashchange', h);
+  }, []);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 3600); return () => clearTimeout(t); }, [toast]);
+
+  // Driver books -> reduce free slots and add the booking to the owner's dashboard
+  const onBook = (b) => {
+    setBookings((l) => [{ ...b, fresh: true }, ...l]);
+    setSpots((l) => l.map((s) => (s.id === b.spotId ? { ...s, slots: Math.max(0, s.slots - 1) } : s)));
+  };
+
+  // Owner lists a slot -> it is immediately searchable by drivers
+  const onList = (f) => {
+    const z = AREAS[f.area];
+    const count = spots.filter((s) => s.owner === 'me' && s.area === f.area).length;
+    const jit = [[-34, -18], [36, -12], [-16, 34], [34, 30]][count % 4];
+    const spot = { id: Math.max(...spots.map((s) => s.id)) + 1, owner: 'me', title: f.name.trim(), kind: f.kind, area: f.area, address: f.address.trim(),
+      rates: { car: f.car ? Number(f.carRate) : null, bike: f.bike ? Number(f.bikeRate) : null }, slots: f.slots, window: { from: f.from, to: f.to },
+      days: daysText(f.days), walk: 3, rating: null, trips: 0, amenities: f.amenities, x: clamp(z.x + jit[0], 30, 370), y: clamp(z.y + jit[1], 40, 290), live: true };
+    setSpots((l) => [...l, spot]);
+    setToast('Listed. Drivers in ' + f.area + ' can book it now.');
+    return { id: spot.id, title: spot.title, area: spot.area, vehicle: f.car ? 'car' : 'bike' };
+  };
+
+  const onToggle = (id) => {
+    setSpots((l) => l.map((s) => (s.id === id ? { ...s, live: !s.live } : s)));
+    const s = spots.find((x) => x.id === id);
+    if (s) setToast(s.live ? 'Listing paused. Drivers will not see it.' : 'Listing is live again.');
+  };
+
+  const viewAsDriver = (d) => { patch({ area: d.area, vehicle: d.vehicle, query: '', selectedId: d.id, nonce: drv.nonce + 1 }); setRole('driver'); };
+
+  return html`
+    <div>
+      <${Header} role=${role} setRole=${setRole} />
+      <${Hero} role=${role} />
+      <main className="gutter mx-auto max-w-6xl py-6 sm:py-8">
+        ${role === 'driver'
+          ? html`<${DriverView} spots=${spots} drv=${drv} patch=${patch} onBook=${onBook} goOwner=${() => setRole('owner')} />`
+          : html`<${OwnerView} spots=${spots} bookings=${bookings} onList=${onList} onToggle=${onToggle} onViewAsDriver=${viewAsDriver} />`}
+      </main>
+      <footer className="border-t border-line">
+        <div className="gutter mx-auto max-w-6xl py-6 text-sm text-muted">
+          <p className="font-semibold text-ink">How ParkShare earns</p>
+          <p className="mt-1 max-w-2xl">Drivers pay no booking fee. ParkShare keeps ${Math.round(COMMISSION * 100)}% of each booking from the owner and the owner keeps the rest.</p>
+          <p className="mt-3 text-xs">Prototype with sample listings in Pune. Bookings and payments are simulated and nothing is saved when you reload.</p>
+        </div>
+      </footer>
+      ${toast && html`
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30" style=${{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
+          <div className="gutter mx-auto flex max-w-6xl justify-center">
+            <p className="pointer-events-auto rounded-xl px-4 py-3 text-sm font-semibold shadow-lg" style=${{ background: 'var(--ink)', color: 'var(--surface)' }} role="status">${toast}</p>
+          </div>
+        </div>`}
+    </div>`;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(html`<${App} />`);
+</script>
+
+</body>
+</html>
